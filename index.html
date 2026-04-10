@@ -194,6 +194,13 @@ svg text{font-family:'Segoe UI',system-ui,sans-serif}
 <script>
 "use strict";
 
+// --- CSV injection guard ---
+function csvSafe(s) {
+  s = String(s);
+  if (/^[=+@\t\r]/.test(s)) return "'" + s;
+  return s;
+}
+
 /* ====== DEMO DATA ====== */
 const DEMO_CSV = `Study,Effect,SE,StudyMeanCovariate,WithinStudyEffect,WithinStudySE
 ACCORD 2010,-0.15,0.08,62,,
@@ -1070,7 +1077,7 @@ function exportCSV() {
   csv += `I2_Naive,${a.I2Naive.toFixed(2)},,,Percent\n`;
   csv += `I2_Corrected,${a.I2Corr.toFixed(2)},,,Percent\n`;
   csv += `R2,${(a.reg.R2 * 100).toFixed(2)},,,Percent\n`;
-  csv += `x_ref,${a.xRef.toFixed(2)},,,${a.covLabel}\n`;
+  csv += `x_ref,${a.xRef.toFixed(2)},,,${csvSafe(a.covLabel)}\n`;
 
   if (a.decomp) {
     csv += `Ecological_Bias,${a.decomp.bias.toFixed(6)},${a.decomp.biasCI[0].toFixed(6)},${a.decomp.biasCI[1].toFixed(6)},Beta_B - Beta_W\n`;
