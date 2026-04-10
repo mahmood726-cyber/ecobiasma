@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoBiasMA — Ecological Bias Meta-Analysis</title>
+<meta name="description" content="Browser-based ecological bias detection and correction in meta-analysis using Jackson decomposition, sensitivity tornado, and meta-regression.">
+<meta property="og:title" content="EcoBiasMA — Ecological Bias Meta-Analysis">
+<meta property="og:description" content="Detect and correct ecological bias when combining individual-level and aggregate-level data in meta-analysis.">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e1a;--card:rgba(20,28,50,0.75);--glass:rgba(255,255,255,0.06);
+  --border:rgba(255,255,255,0.10);--text:#e0e4f0;--muted:#8890a8;
+  --accent:#4fc3f7;--accent2:#ab47bc;--accent3:#66bb6a;--warn:#ff7043;
+  --red:#ef5350;--gold:#ffd54f;
+}
+html{font-size:14px}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+h1,h2,h3{font-weight:600}
+h1{font-size:1.6rem;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h2{font-size:1.15rem;color:var(--accent);margin-bottom:0.5rem}
+h3{font-size:1rem;color:var(--gold);margin-bottom:0.4rem}
+
+.glass{background:var(--card);backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:12px;padding:1.2rem}
+.container{max-width:1400px;margin:0 auto;padding:1rem}
+header{text-align:center;padding:1.5rem 0 0.5rem}
+header p{color:var(--muted);font-size:0.9rem;margin-top:0.3rem}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+
+textarea{width:100%;height:180px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem;font-family:'Consolas','Courier New',monospace;font-size:0.82rem;resize:vertical}
+input[type=text],input[type=number]{background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.9rem;width:100%}
+label{display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.2rem;margin-top:0.5rem}
+
+.btn{display:inline-block;padding:0.5rem 1.2rem;border:none;border-radius:8px;font-size:0.9rem;cursor:pointer;font-weight:600;transition:all 0.2s}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{filter:brightness(1.15)}
+.btn-secondary{background:var(--glass);color:var(--accent);border:1px solid var(--border)}
+.btn-secondary:hover{background:rgba(79,195,247,0.15)}
+.btn-group{display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.8rem}
+
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.7rem;margin-top:0.5rem}
+.metric{background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:0.7rem;text-align:center}
+.metric .val{font-size:1.4rem;font-weight:700;color:var(--accent)}
+.metric .lbl{font-size:0.75rem;color:var(--muted);margin-top:0.15rem}
+
+table{width:100%;border-collapse:collapse;font-size:0.85rem}
+th{background:rgba(79,195,247,0.12);color:var(--accent);padding:0.5rem;text-align:left;border-bottom:1px solid var(--border)}
+td{padding:0.45rem 0.5rem;border-bottom:1px solid var(--glass)}
+tr:hover td{background:rgba(255,255,255,0.03)}
+
+.svg-container{width:100%;overflow-x:auto;margin-top:0.5rem}
+svg text{font-family:'Segoe UI',system-ui,sans-serif}
+
+.error-box{background:rgba(239,83,80,0.15);border:1px solid var(--red);border-radius:8px;padding:0.8rem;color:var(--red);margin-top:0.5rem;display:none}
+.hidden{display:none}
+
+.decomp-row{display:flex;align-items:center;gap:1rem;margin:0.4rem 0;padding:0.5rem;background:var(--glass);border-radius:6px}
+.decomp-label{min-width:160px;font-weight:600;font-size:0.9rem}
+.decomp-val{font-size:1.05rem;font-weight:700}
+.decomp-ci{color:var(--muted);font-size:0.85rem}
+
+.footer{text-align:center;color:var(--muted);font-size:0.75rem;padding:2rem 0 1rem;border-top:1px solid var(--glass);margin-top:2rem}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>EcoBiasMA</h1>
+  <p>Ecological Bias Detection &amp; Correction in Meta-Analysis &mdash; Jackson Decomposition + Sensitivity Tornado</p>
+</header>
+
+<!-- INPUT PANEL -->
+<section class="glass" style="margin-top:1rem" id="inputPanel">
+  <h2>Data Input</h2>
+  <p style="color:var(--muted);font-size:0.82rem;margin-bottom:0.5rem">
+    CSV: Study, Effect (log scale), SE, StudyMeanCovariate, [WithinStudyEffect, WithinStudySE]
+  </p>
+  <textarea id="csvInput" placeholder="Paste CSV data here..."></textarea>
+
+  <div class="grid3" style="margin-top:0.6rem">
+    <div>
+      <label for="covLabel">Covariate Label</label>
+      <input type="text" id="covLabel" value="Mean Age" placeholder="e.g., Mean Age, % Male">
+    </div>
+    <div>
+      <label for="xRef">Reference Covariate Value (x_ref)</label>
+      <input type="number" id="xRef" value="" placeholder="Default = mean of all xbar" step="any">
+    </div>
+    <div>
+      <label for="effectLabel">Effect Measure</label>
+      <input type="text" id="effectLabel" value="log OR" placeholder="e.g., log OR, log RR, SMD">
+    </div>
+  </div>
+  <div class="grid3">
+    <div>
+      <label for="bMin">Sensitivity B_min</label>
+      <input type="number" id="bMin" value="0" step="any">
+    </div>
+    <div>
+      <label for="bMax">Sensitivity B_max</label>
+      <input type="number" id="bMax" value="0.05" step="any">
+    </div>
+    <div>
+      <label for="bSteps">Sensitivity Steps</label>
+      <input type="number" id="bSteps" value="50" min="5" max="500">
+    </div>
+  </div>
+
+  <div class="btn-group">
+    <button class="btn btn-primary" id="btnAnalyze" onclick="runAnalysis()">Analyze</button>
+    <button class="btn btn-secondary" id="btnDemo" onclick="loadDemo()">Load Demo Data</button>
+    <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+  </div>
+  <div class="error-box" id="errorBox"></div>
+</section>
+
+<!-- RESULTS -->
+<div id="resultsSection" class="hidden">
+
+  <!-- Summary Metrics -->
+  <section class="glass" style="margin-top:1rem" id="summarySection">
+    <h2>Summary</h2>
+    <div class="metric-grid" id="metricGrid"></div>
+  </section>
+
+  <!-- Bias Decomposition -->
+  <section class="glass" style="margin-top:1rem" id="decompSection">
+    <h2>Ecological Bias Decomposition (Jackson 2006)</h2>
+    <div id="decompContent"></div>
+  </section>
+
+  <!-- Meta-Regression Plot -->
+  <section class="glass" style="margin-top:1rem" id="metaregSection">
+    <h2>Meta-Regression: Effect vs <span id="covLabelDisplay">Covariate</span></h2>
+    <div class="svg-container" id="metaregPlot"></div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="exportSVG('metaregPlot','metareg')">Export SVG</button>
+    </div>
+  </section>
+
+  <!-- Forest Plots -->
+  <section class="glass" style="margin-top:1rem" id="forestSection">
+    <h2>Forest Plots: Uncorrected vs Corrected</h2>
+    <div class="grid2">
+      <div>
+        <h3>Uncorrected (Naive)</h3>
+        <div class="svg-container" id="forestUncorrected"></div>
+      </div>
+      <div>
+        <h3>Corrected (Bias-Adjusted)</h3>
+        <div class="svg-container" id="forestCorrected"></div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="exportSVG('forestUncorrected','forest_uncorrected')">Export Uncorrected SVG</button>
+      <button class="btn btn-secondary" onclick="exportSVG('forestCorrected','forest_corrected')">Export Corrected SVG</button>
+    </div>
+  </section>
+
+  <!-- Sensitivity Tornado -->
+  <section class="glass" style="margin-top:1rem" id="tornadoSection">
+    <h2>Sensitivity Tornado: Corrected Effect vs Bias Factor</h2>
+    <div class="svg-container" id="tornadoPlot"></div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="exportSVG('tornadoPlot','sensitivity_tornado')">Export SVG</button>
+    </div>
+  </section>
+
+  <!-- Summary Table -->
+  <section class="glass" style="margin-top:1rem" id="tableSection">
+    <h2>Detailed Results Table</h2>
+    <div style="overflow-x:auto">
+      <table id="summaryTable"></table>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  EcoBiasMA v1.0 &mdash; Ecological Bias Meta-Analysis &mdash; Jackson 2006 Decomposition<br>
+  No data leaves your browser. Fully offline. &copy; 2026.
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ====== DEMO DATA ====== */
+const DEMO_CSV = `Study,Effect,SE,StudyMeanCovariate,WithinStudyEffect,WithinStudySE
+ACCORD 2010,-0.15,0.08,62,,
+ADVANCE 2008,-0.22,0.06,66,,
+UKPDS 1998,-0.35,0.10,53,-0.30,0.12
+VADT 2009,-0.05,0.09,60,,
+EMPA-REG 2015,-0.38,0.07,63,-0.36,0.09
+LEADER 2016,-0.28,0.06,64,,
+DAPA-HF 2019,-0.42,0.08,66,-0.40,0.10
+EMPEROR 2020,-0.30,0.07,67,,`;
+
+function loadDemo() {
+  document.getElementById('csvInput').value = DEMO_CSV;
+  document.getElementById('covLabel').value = 'Mean Age';
+  document.getElementById('effectLabel').value = 'log OR';
+  document.getElementById('bMin').value = '0';
+  document.getElementById('bMax').value = '0.05';
+  document.getElementById('bSteps').value = '50';
+  document.getElementById('xRef').value = '';
+}
+
+function clearAll() {
+  document.getElementById('csvInput').value = '';
+  document.getElementById('resultsSection').classList.add('hidden');
+  document.getElementById('errorBox').style.display = 'none';
+}
+
+/* ====== CSV PARSER ====== */
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) throw new Error('CSV must have header + at least 1 data row');
+  const header = lines[0].split(',').map(h => h.trim());
+  const reqCols = ['Study','Effect','SE','StudyMeanCovariate'];
+  for (const c of reqCols) {
+    if (!header.includes(c)) throw new Error('Missing required column: ' + c);
+  }
+  const studies = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(',').map(v => v.trim());
+    if (vals.length < 4) continue;
+    const s = {
+      name: vals[header.indexOf('Study')],
+      y: parseFloat(vals[header.indexOf('Effect')]),
+      se: parseFloat(vals[header.indexOf('SE')]),
+      xbar: parseFloat(vals[header.indexOf('StudyMeanCovariate')])
+    };
+    if (isNaN(s.y) || isNaN(s.se) || isNaN(s.xbar) || s.se <= 0) {
+      throw new Error('Invalid numeric data in row ' + (i + 1) + ': ' + lines[i]);
+    }
+    // Optional within-study columns
+    const wiIdx = header.indexOf('WithinStudyEffect');
+    const wsIdx = header.indexOf('WithinStudySE');
+    if (wiIdx >= 0 && wsIdx >= 0 && vals[wiIdx] !== '' && vals[wsIdx] !== '') {
+      s.withinEffect = parseFloat(vals[wiIdx]);
+      s.withinSE = parseFloat(vals[wsIdx]);
+      if (isNaN(s.withinEffect) || isNaN(s.withinSE) || s.withinSE <= 0) {
+        s.withinEffect = null;
+        s.withinSE = null;
+      }
+    } else {
+      s.withinEffect = null;
+      s.withinSE = null;
+    }
+    studies.push(s);
+  }
+  if (studies.length === 0) throw new Error('No valid data rows found');
+  return studies;
+}
+
+/* ====== STATISTICAL ENGINE ====== */
+
+// t-distribution quantile approximation (Abramowitz & Stegun, good for df>=1)
+function tQuantile(p, df) {
+  // Use normal approx refined by Cornish-Fisher for large df
+  // For small df, use iterative Newton on regularized incomplete beta
+  if (df <= 0) return NaN;
+  if (p <= 0) return -Infinity;
+  if (p >= 1) return Infinity;
+  // Normal quantile via rational approximation
+  const a = p < 0.5 ? p : 1 - p;
+  const t0 = Math.sqrt(-2 * Math.log(a));
+  const c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
+  const d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
+  let z = t0 - (c0 + c1*t0 + c2*t0*t0) / (1 + d1*t0 + d2*t0*t0 + d3*t0*t0*t0);
+  if (p < 0.5) z = -z;
+  // Refine for t-distribution using Cornish-Fisher expansion
+  const g1 = (z*z*z + z) / (4 * df);
+  const g2 = (5*z*z*z*z*z + 16*z*z*z + 3*z) / (96 * df * df);
+  const g3 = (3*z*z*z*z*z*z*z + 19*z*z*z*z*z + 17*z*z*z - 15*z) / (384 * df * df * df);
+  let tVal = z + g1 + g2 + g3;
+  // Newton refinement using the t-distribution CDF
+  for (let iter = 0; iter < 20; iter++) {
+    const cdf = tCDF(tVal, df);
+    const pdf = tPDF(tVal, df);
+    if (Math.abs(pdf) < 1e-30) break;
+    const delta = (cdf - p) / pdf;
+    tVal -= delta;
+    if (Math.abs(delta) < 1e-12) break;
+  }
+  return tVal;
+}
+
+function tPDF(x, df) {
+  const lnCoeff = lnGamma((df+1)/2) - lnGamma(df/2) - 0.5*Math.log(df*Math.PI);
+  return Math.exp(lnCoeff - ((df+1)/2)*Math.log(1 + x*x/df));
+}
+
+function tCDF(x, df) {
+  // Use regularized incomplete beta
+  if (x === 0) return 0.5;
+  const t2 = x * x;
+  const bval = regIncBeta(df/2, 0.5, df/(df + t2));
+  return x > 0 ? 1 - 0.5*bval : 0.5*bval;
+}
+
+function lnGamma(z) {
+  // Lanczos approximation
+  if (z <= 0) return Infinity;
+  const g = 7;
+  const c = [0.99999999999980993,676.5203681218851,-1259.1392167224028,
+    771.32342877765313,-176.61502916214059,12.507343278686905,
+    -0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  let x = c[0];
+  for (let i = 1; i < g + 2; i++) x += c[i] / (z + i - 1);
+  const t = z + g - 0.5;
+  return 0.5*Math.log(2*Math.PI) + (z - 0.5)*Math.log(t) - t + Math.log(x) - Math.log(z);
+}
+
+function regIncBeta(a, b, x) {
+  // Regularized incomplete beta via continued fraction
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b);
+  const front = Math.exp(a*Math.log(x) + b*Math.log(1-x) - lnBeta) / a;
+  // Use continued fraction (Lentz's method)
+  if (x < (a + 1) / (a + b + 2)) {
+    return front * betaCF(a, b, x);
+  } else {
+    return 1 - Math.exp(b*Math.log(1-x) + a*Math.log(x) - lnBeta) / b * betaCF(b, a, 1-x);
+  }
+}
+
+function betaCF(a, b, x) {
+  const MAXIT = 200;
+  const EPS = 1e-14;
+  let qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - qab * x / qap;
+  if (Math.abs(d) < 1e-30) d = 1e-30;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= MAXIT; m++) {
+    let m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30; d = 1/d;
+    c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+    h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30; d = 1/d;
+    c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+    let del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+
+function normalCDF(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const t = 1 / (1 + p * Math.abs(x));
+  const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-x*x/2);
+  return 0.5 * (1 + sign * y);
+}
+
+// DerSimonian-Laird tau2 estimator
+function dlTau2(studies) {
+  const k = studies.length;
+  const w = studies.map(s => 1 / (s.se * s.se));
+  const sumW = w.reduce((a, b) => a + b, 0);
+  const yBar = w.reduce((a, wi, i) => a + wi * studies[i].y, 0) / sumW;
+  const Q = w.reduce((a, wi, i) => a + wi * Math.pow(studies[i].y - yBar, 2), 0);
+  const C = sumW - w.reduce((a, wi) => a + wi * wi, 0) / sumW;
+  const tau2 = Math.max(0, (Q - (k - 1)) / C);
+  return { tau2, Q, df: k - 1 };
+}
+
+// Random-effects pooled estimate
+function rePool(studies, tau2) {
+  if (tau2 === undefined) tau2 = dlTau2(studies).tau2;
+  const w = studies.map(s => 1 / (s.se * s.se + tau2));
+  const sumW = w.reduce((a, b) => a + b, 0);
+  const est = w.reduce((a, wi, i) => a + wi * studies[i].y, 0) / sumW;
+  const seSumm = Math.sqrt(1 / sumW);
+  return { est, se: seSumm, w, ci: [est - 1.96 * seSumm, est + 1.96 * seSumm] };
+}
+
+// I-squared
+function calcI2(Q, df) {
+  if (df <= 0) return 0;
+  return Math.max(0, (Q - df) / Q) * 100;
+}
+
+// Weighted least squares meta-regression (centered covariates, DL tau2)
+function metaRegression(studies) {
+  const k = studies.length;
+  if (k < 3) throw new Error('Meta-regression requires at least 3 studies (k=' + k + ')');
+
+  // Step 1: DL tau2 from standard MA
+  const dl = dlTau2(studies);
+  const tau2 = dl.tau2;
+
+  // Center covariates
+  const w = studies.map(s => 1 / (s.se * s.se + tau2));
+  const sumW = w.reduce((a, b) => a + b, 0);
+  const xMean = w.reduce((a, wi, i) => a + wi * studies[i].xbar, 0) / sumW;
+  const xc = studies.map(s => s.xbar - xMean);
+
+  // WLS regression: y = alpha + beta * xc
+  const sumWxc2 = w.reduce((a, wi, i) => a + wi * xc[i] * xc[i], 0);
+  const sumWxcY = w.reduce((a, wi, i) => a + wi * xc[i] * studies[i].y, 0);
+  const beta = sumWxcY / sumWxc2;
+  const alpha = w.reduce((a, wi, i) => a + wi * studies[i].y, 0) / sumW;
+
+  // Residual Q
+  const Qres = w.reduce((a, wi, i) => {
+    const fitted = alpha + beta * xc[i];
+    return a + wi * Math.pow(studies[i].y - fitted, 2);
+  }, 0);
+
+  // R-squared (proportion of between-study variance explained)
+  const Qtotal = dl.Q;
+  const R2 = Math.max(0, Math.min(1, 1 - Qres / Qtotal));
+
+  // Knapp-Hartung variance for beta: use t_{k-2}
+  // SE_KH(beta) = sqrt(Qres / (k-2)) / sqrt(sum(w * xc^2))
+  // But standard HKSJ: multiply SE by sqrt(Qres/(k-2)) scaling
+  const hksjFactor = Math.max(1, Qres / (k - 2));
+  const seBeta = Math.sqrt(hksjFactor / sumWxc2);
+  const seAlpha = Math.sqrt(hksjFactor / sumW);
+
+  const tCrit = tQuantile(0.975, k - 2);
+  const betaCI = [beta - tCrit * seBeta, beta + tCrit * seBeta];
+  const alphaCI = [alpha - tCrit * seAlpha, alpha + tCrit * seAlpha];
+
+  return {
+    alpha, beta, seBeta, seAlpha,
+    alphaCI, betaCI,
+    tau2, Q: Qtotal, Qres, R2, xMean, xc, w,
+    k, df: k - 2, tCrit
+  };
+}
+
+// Pool within-study effects
+function poolWithinStudy(studies) {
+  const ws = studies.filter(s => s.withinEffect !== null && s.withinSE !== null);
+  if (ws.length === 0) return null;
+
+  // Standard RE pooling of within-study effects
+  const dl = dlTau2(ws.map(s => ({ y: s.withinEffect, se: s.withinSE })));
+  const pool = rePool(ws.map(s => ({ y: s.withinEffect, se: s.withinSE })), dl.tau2);
+
+  // Also compute a within-study "slope" by meta-regression on within-study effects
+  // But for within-study slope we need at least 3 studies
+  let betaW = null, betaW_se = null, betaW_CI = null;
+  if (ws.length >= 3) {
+    try {
+      const wsStudies = ws.map(s => ({ y: s.withinEffect, se: s.withinSE, xbar: s.xbar }));
+      const reg = metaRegression(wsStudies);
+      betaW = reg.beta;
+      betaW_se = reg.seBeta;
+      betaW_CI = reg.betaCI;
+    } catch(e) {
+      // fallback: no within-study regression
+    }
+  }
+
+  return {
+    pooled: pool.est,
+    pooledSE: pool.se,
+    pooledCI: pool.ci,
+    nStudies: ws.length,
+    betaW, betaW_se, betaW_CI
+  };
+}
+
+// Ecological bias decomposition
+function ecoBiasDecomposition(betaB, seBetaB, withinResult) {
+  if (!withinResult || withinResult.betaW === null) return null;
+
+  const betaW = withinResult.betaW;
+  const seBetaW = withinResult.betaW_se;
+  const bias = betaB - betaW;
+  const seBias = Math.sqrt(seBetaB * seBetaB + seBetaW * seBetaW);
+  const biasCI = [bias - 1.96 * seBias, bias + 1.96 * seBias];
+
+  return {
+    betaB, seBetaB,
+    betaW, seBetaW,
+    betaW_CI: withinResult.betaW_CI,
+    bias, seBias, biasCI
+  };
+}
+
+// Sensitivity analysis: correct effects for a range of bias factors
+function sensitivityAnalysis(studies, xRef, bMin, bMax, nSteps) {
+  const results = [];
+  const step = nSteps > 1 ? (bMax - bMin) / (nSteps - 1) : 0;
+  for (let i = 0; i < nSteps; i++) {
+    const B = bMin + i * step;
+    const corrected = studies.map(s => ({
+      name: s.name,
+      y: s.y - B * (s.xbar - xRef),
+      se: s.se,
+      xbar: s.xbar,
+      withinEffect: s.withinEffect,
+      withinSE: s.withinSE
+    }));
+    const dl = dlTau2(corrected);
+    const pool = rePool(corrected, dl.tau2);
+    results.push({
+      B,
+      pooledEst: pool.est,
+      pooledSE: pool.se,
+      pooledCI: pool.ci,
+      I2: calcI2(dl.Q, dl.df),
+      tau2: dl.tau2,
+      correctedStudies: corrected
+    });
+  }
+  return results;
+}
+
+/* ====== VISUALIZATION ====== */
+
+function createSVG(w, h) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.style.maxWidth = '100%';
+  return svg;
+}
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function svgText(x, y, text, attrs = {}) {
+  const el = svgEl('text', { x, y, fill: '#e0e4f0', 'font-size': '11', ...attrs });
+  el.textContent = text;
+  return el;
+}
+
+// Meta-regression bubble plot
+function drawMetaRegPlot(container, studies, reg, covLabel, effectLabel) {
+  container.innerHTML = '';
+  const W = 700, H = 420;
+  const margin = { top: 30, right: 30, bottom: 55, left: 65 };
+  const pw = W - margin.left - margin.right;
+  const ph = H - margin.top - margin.bottom;
+  const svg = createSVG(W, H);
+
+  // Background
+  svg.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: '#0d1225', rx: 8 }));
+
+  const xVals = studies.map(s => s.xbar);
+  const yVals = studies.map(s => s.y);
+  const xMin = Math.min(...xVals) - 2, xMax = Math.max(...xVals) + 2;
+  const yMin = Math.min(...yVals) - 0.1, yMax = Math.max(...yVals) + 0.1;
+
+  const scaleX = x => margin.left + (x - xMin) / (xMax - xMin) * pw;
+  const scaleY = y => margin.top + ph - (y - yMin) / (yMax - yMin) * ph;
+
+  // Grid lines
+  for (let i = 0; i <= 5; i++) {
+    const yg = yMin + (yMax - yMin) * i / 5;
+    const py = scaleY(yg);
+    svg.appendChild(svgEl('line', { x1: margin.left, x2: W - margin.right, y1: py, y2: py, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': 1 }));
+    svg.appendChild(svgText(margin.left - 8, py + 4, yg.toFixed(2), { 'text-anchor': 'end', 'font-size': '10' }));
+  }
+  for (let i = 0; i <= 5; i++) {
+    const xg = xMin + (xMax - xMin) * i / 5;
+    const px = scaleX(xg);
+    svg.appendChild(svgEl('line', { x1: px, x2: px, y1: margin.top, y2: H - margin.bottom, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': 1 }));
+    svg.appendChild(svgText(px, H - margin.bottom + 16, xg.toFixed(1), { 'text-anchor': 'middle', 'font-size': '10' }));
+  }
+
+  // Null line at y=0
+  if (yMin < 0 && yMax > 0) {
+    svg.appendChild(svgEl('line', { x1: margin.left, x2: W - margin.right, y1: scaleY(0), y2: scaleY(0), stroke: 'rgba(255,112,67,0.4)', 'stroke-width': 1, 'stroke-dasharray': '4,3' }));
+  }
+
+  // CI band for regression
+  const bandPts = [];
+  for (let i = 0; i <= 50; i++) {
+    const x = xMin + (xMax - xMin) * i / 50;
+    const xc = x - reg.xMean;
+    const yHat = reg.alpha + reg.beta * xc;
+    const sePred = Math.sqrt(reg.seAlpha * reg.seAlpha + xc * xc * reg.seBeta * reg.seBeta);
+    const yLo = yHat - reg.tCrit * sePred;
+    const yHi = yHat + reg.tCrit * sePred;
+    bandPts.push({ x, yLo, yHi, yHat });
+  }
+
+  // Shaded CI band
+  let polyUp = bandPts.map(p => `${scaleX(p.x)},${scaleY(p.yHi)}`).join(' ');
+  let polyDown = bandPts.slice().reverse().map(p => `${scaleX(p.x)},${scaleY(p.yLo)}`).join(' ');
+  svg.appendChild(svgEl('polygon', { points: polyUp + ' ' + polyDown, fill: 'rgba(79,195,247,0.12)', stroke: 'none' }));
+
+  // Regression line
+  const lineD = bandPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${scaleX(p.x)},${scaleY(p.yHat)}`).join(' ');
+  svg.appendChild(svgEl('path', { d: lineD, stroke: '#4fc3f7', 'stroke-width': 2, fill: 'none' }));
+
+  // Bubbles
+  const maxW = Math.max(...reg.w);
+  studies.forEach((s, i) => {
+    const r = 6 + 14 * Math.sqrt(reg.w[i] / maxW);
+    const cx = scaleX(s.xbar), cy = scaleY(s.y);
+    svg.appendChild(svgEl('circle', { cx, cy, r, fill: 'rgba(171,71,188,0.5)', stroke: '#ab47bc', 'stroke-width': 1.5 }));
+    svg.appendChild(svgText(cx, cy - r - 4, s.name, { 'text-anchor': 'middle', 'font-size': '9', fill: '#bbb' }));
+  });
+
+  // Axes labels
+  svg.appendChild(svgText(W / 2, H - 5, covLabel, { 'text-anchor': 'middle', 'font-size': '12', fill: '#8890a8' }));
+  const yLabel = svgText(0, 0, effectLabel, { 'text-anchor': 'middle', 'font-size': '12', fill: '#8890a8', transform: `translate(14,${H/2}) rotate(-90)` });
+  svg.appendChild(yLabel);
+
+  // Annotation
+  svg.appendChild(svgText(W - margin.right - 5, margin.top + 14, `slope = ${reg.beta.toFixed(4)}`, { 'text-anchor': 'end', 'font-size': '10', fill: '#4fc3f7' }));
+  svg.appendChild(svgText(W - margin.right - 5, margin.top + 28, `R\u00B2 = ${(reg.R2 * 100).toFixed(1)}%`, { 'text-anchor': 'end', 'font-size': '10', fill: '#66bb6a' }));
+
+  container.appendChild(svg);
+}
+
+// Forest plot
+function drawForestPlot(container, studies, poolResult, title, tau2) {
+  container.innerHTML = '';
+  const k = studies.length;
+  const rowH = 28;
+  const W = 560, margin = { top: 30, right: 30, bottom: 40, left: 170 };
+  const H = margin.top + (k + 2) * rowH + margin.bottom;
+  const pw = W - margin.left - margin.right;
+  const svg = createSVG(W, H);
+
+  svg.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: '#0d1225', rx: 8 }));
+
+  // Determine x range
+  const allVals = [];
+  studies.forEach(s => {
+    allVals.push(s.y - 1.96 * s.se, s.y + 1.96 * s.se);
+  });
+  allVals.push(poolResult.ci[0], poolResult.ci[1]);
+  let xMin = Math.min(...allVals) - 0.1;
+  let xMax = Math.max(...allVals) + 0.1;
+
+  const scaleX = x => margin.left + (x - xMin) / (xMax - xMin) * pw;
+
+  // Null line
+  if (xMin < 0 && xMax > 0) {
+    svg.appendChild(svgEl('line', { x1: scaleX(0), x2: scaleX(0), y1: margin.top, y2: H - margin.bottom, stroke: 'rgba(255,112,67,0.5)', 'stroke-width': 1, 'stroke-dasharray': '3,3' }));
+  }
+
+  // Title
+  svg.appendChild(svgText(W / 2, 18, title, { 'text-anchor': 'middle', 'font-size': '11', fill: '#8890a8', 'font-weight': 'bold' }));
+
+  const maxW = Math.max(...poolResult.w);
+
+  // Studies
+  studies.forEach((s, i) => {
+    const cy = margin.top + (i + 0.5) * rowH;
+    const lo = s.y - 1.96 * s.se;
+    const hi = s.y + 1.96 * s.se;
+
+    // CI line
+    svg.appendChild(svgEl('line', { x1: scaleX(lo), x2: scaleX(hi), y1: cy, y2: cy, stroke: '#4fc3f7', 'stroke-width': 1.5 }));
+
+    // Square (size proportional to weight)
+    const sz = 4 + 8 * Math.sqrt(poolResult.w[i] / maxW);
+    svg.appendChild(svgEl('rect', {
+      x: scaleX(s.y) - sz/2, y: cy - sz/2, width: sz, height: sz,
+      fill: '#4fc3f7', stroke: '#fff', 'stroke-width': 0.5
+    }));
+
+    // Label
+    svg.appendChild(svgText(margin.left - 8, cy + 4, s.name, { 'text-anchor': 'end', 'font-size': '10' }));
+
+    // Estimate text
+    svg.appendChild(svgText(W - margin.right + 5, cy + 4, `${s.y.toFixed(2)} [${lo.toFixed(2)}, ${hi.toFixed(2)}]`, { 'font-size': '9', fill: '#bbb' }));
+  });
+
+  // Summary diamond
+  const sumY = margin.top + (k + 0.8) * rowH;
+  svg.appendChild(svgEl('line', { x1: margin.left, x2: W - margin.right, y1: sumY - rowH * 0.3, y2: sumY - rowH * 0.3, stroke: 'rgba(255,255,255,0.1)', 'stroke-width': 1 }));
+
+  const dPts = [
+    `${scaleX(poolResult.ci[0])},${sumY}`,
+    `${scaleX(poolResult.est)},${sumY - 8}`,
+    `${scaleX(poolResult.ci[1])},${sumY}`,
+    `${scaleX(poolResult.est)},${sumY + 8}`
+  ].join(' ');
+  svg.appendChild(svgEl('polygon', { points: dPts, fill: '#66bb6a', stroke: '#fff', 'stroke-width': 0.5 }));
+
+  svg.appendChild(svgText(margin.left - 8, sumY + 4, 'RE Pooled', { 'text-anchor': 'end', 'font-size': '10', 'font-weight': 'bold', fill: '#66bb6a' }));
+  svg.appendChild(svgText(W - margin.right + 5, sumY + 4, `${poolResult.est.toFixed(2)} [${poolResult.ci[0].toFixed(2)}, ${poolResult.ci[1].toFixed(2)}]`, { 'font-size': '9', fill: '#66bb6a' }));
+
+  container.appendChild(svg);
+}
+
+// Sensitivity tornado plot
+function drawTornadoPlot(container, sensResults, effectLabel) {
+  container.innerHTML = '';
+  const W = 700, H = 400;
+  const margin = { top: 30, right: 30, bottom: 55, left: 65 };
+  const pw = W - margin.left - margin.right;
+  const ph = H - margin.top - margin.bottom;
+  const svg = createSVG(W, H);
+
+  svg.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: '#0d1225', rx: 8 }));
+
+  const bVals = sensResults.map(r => r.B);
+  const eVals = sensResults.map(r => r.pooledEst);
+  const loVals = sensResults.map(r => r.pooledCI[0]);
+  const hiVals = sensResults.map(r => r.pooledCI[1]);
+
+  const xMin = Math.min(...bVals);
+  const xMax = Math.max(...bVals);
+  const yMin = Math.min(...loVals) - 0.05;
+  const yMax = Math.max(...hiVals) + 0.05;
+
+  const scaleX = x => margin.left + (x - xMin) / (xMax - xMin) * pw;
+  const scaleY = y => margin.top + ph - (y - yMin) / (yMax - yMin) * ph;
+
+  // Grid
+  for (let i = 0; i <= 5; i++) {
+    const yg = yMin + (yMax - yMin) * i / 5;
+    const py = scaleY(yg);
+    svg.appendChild(svgEl('line', { x1: margin.left, x2: W - margin.right, y1: py, y2: py, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': 1 }));
+    svg.appendChild(svgText(margin.left - 8, py + 4, yg.toFixed(3), { 'text-anchor': 'end', 'font-size': '10' }));
+  }
+  for (let i = 0; i <= 5; i++) {
+    const xg = xMin + (xMax - xMin) * i / 5;
+    const px = scaleX(xg);
+    svg.appendChild(svgEl('line', { x1: px, x2: px, y1: margin.top, y2: H - margin.bottom, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': 1 }));
+    svg.appendChild(svgText(px, H - margin.bottom + 16, xg.toFixed(4), { 'text-anchor': 'middle', 'font-size': '10' }));
+  }
+
+  // Null line at y=0
+  if (yMin < 0 && yMax > 0) {
+    svg.appendChild(svgEl('line', { x1: margin.left, x2: W - margin.right, y1: scaleY(0), y2: scaleY(0), stroke: 'rgba(255,112,67,0.6)', 'stroke-width': 1.5, 'stroke-dasharray': '5,3' }));
+    svg.appendChild(svgText(W - margin.right + 3, scaleY(0) - 4, 'null', { 'font-size': '9', fill: '#ff7043' }));
+  }
+
+  // CI band
+  let polyUp = sensResults.map(r => `${scaleX(r.B)},${scaleY(r.pooledCI[1])}`).join(' ');
+  let polyDown = sensResults.slice().reverse().map(r => `${scaleX(r.B)},${scaleY(r.pooledCI[0])}`).join(' ');
+  svg.appendChild(svgEl('polygon', { points: polyUp + ' ' + polyDown, fill: 'rgba(102,187,106,0.12)', stroke: 'none' }));
+
+  // Main line
+  const lineD = sensResults.map((r, i) => `${i === 0 ? 'M' : 'L'}${scaleX(r.B)},${scaleY(r.pooledEst)}`).join(' ');
+  svg.appendChild(svgEl('path', { d: lineD, stroke: '#66bb6a', 'stroke-width': 2.5, fill: 'none' }));
+
+  // CI boundary lines
+  const loLine = sensResults.map((r, i) => `${i === 0 ? 'M' : 'L'}${scaleX(r.B)},${scaleY(r.pooledCI[0])}`).join(' ');
+  const hiLine = sensResults.map((r, i) => `${i === 0 ? 'M' : 'L'}${scaleX(r.B)},${scaleY(r.pooledCI[1])}`).join(' ');
+  svg.appendChild(svgEl('path', { d: loLine, stroke: 'rgba(102,187,106,0.4)', 'stroke-width': 1, fill: 'none', 'stroke-dasharray': '3,2' }));
+  svg.appendChild(svgEl('path', { d: hiLine, stroke: 'rgba(102,187,106,0.4)', 'stroke-width': 1, fill: 'none', 'stroke-dasharray': '3,2' }));
+
+  // Find crossing point (where CI crosses zero)
+  let crossB = null;
+  for (let i = 1; i < sensResults.length; i++) {
+    const prev = sensResults[i-1], curr = sensResults[i];
+    // Check if upper CI crosses 0 (from negative to positive)
+    if ((prev.pooledCI[1] < 0 && curr.pooledCI[1] >= 0) || (prev.pooledCI[1] >= 0 && curr.pooledCI[1] < 0)) {
+      crossB = prev.B + (curr.B - prev.B) * (0 - prev.pooledCI[1]) / (curr.pooledCI[1] - prev.pooledCI[1]);
+    }
+    // Check if lower CI crosses 0
+    if ((prev.pooledCI[0] < 0 && curr.pooledCI[0] >= 0) || (prev.pooledCI[0] >= 0 && curr.pooledCI[0] < 0)) {
+      if (crossB === null) {
+        crossB = prev.B + (curr.B - prev.B) * (0 - prev.pooledCI[0]) / (curr.pooledCI[0] - prev.pooledCI[0]);
+      }
+    }
+  }
+
+  // Also check where the point estimate crosses 0
+  let estCrossB = null;
+  for (let i = 1; i < sensResults.length; i++) {
+    const prev = sensResults[i-1], curr = sensResults[i];
+    if ((prev.pooledEst < 0 && curr.pooledEst >= 0) || (prev.pooledEst >= 0 && curr.pooledEst < 0)) {
+      estCrossB = prev.B + (curr.B - prev.B) * (0 - prev.pooledEst) / (curr.pooledEst - prev.pooledEst);
+    }
+  }
+
+  if (crossB !== null && crossB >= xMin && crossB <= xMax) {
+    svg.appendChild(svgEl('line', { x1: scaleX(crossB), x2: scaleX(crossB), y1: margin.top, y2: H - margin.bottom, stroke: '#ffd54f', 'stroke-width': 1.5, 'stroke-dasharray': '4,3' }));
+    svg.appendChild(svgText(scaleX(crossB), margin.top - 5, `B=${crossB.toFixed(4)}`, { 'text-anchor': 'middle', 'font-size': '10', fill: '#ffd54f' }));
+    svg.appendChild(svgText(scaleX(crossB), margin.top + 10, 'conclusion changes', { 'text-anchor': 'middle', 'font-size': '9', fill: '#ffd54f' }));
+
+    // Shade region where conclusion changes
+    const shadeLeft = Math.max(scaleX(crossB), margin.left);
+    const shadeRight = W - margin.right;
+    if (shadeRight > shadeLeft) {
+      svg.appendChild(svgEl('rect', {
+        x: shadeLeft, y: margin.top, width: shadeRight - shadeLeft, height: ph,
+        fill: 'rgba(255,213,79,0.06)', stroke: 'none'
+      }));
+    }
+  }
+
+  // Axes labels
+  svg.appendChild(svgText(W / 2, H - 5, 'Bias Factor (B)', { 'text-anchor': 'middle', 'font-size': '12', fill: '#8890a8' }));
+  const yLabel = svgText(0, 0, 'Corrected Pooled ' + effectLabel, { 'text-anchor': 'middle', 'font-size': '12', fill: '#8890a8', transform: `translate(14,${H/2}) rotate(-90)` });
+  svg.appendChild(yLabel);
+
+  container.appendChild(svg);
+}
+
+/* ====== MAIN ANALYSIS ====== */
+
+let lastAnalysis = null;
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+function hideError() {
+  document.getElementById('errorBox').style.display = 'none';
+}
+
+function runAnalysis() {
+  hideError();
+  try {
+    const csv = document.getElementById('csvInput').value;
+    if (!csv.trim()) { showError('Please paste CSV data or click "Load Demo Data".'); return; }
+
+    const studies = parseCSV(csv);
+    if (studies.length < 3) {
+      showError('Meta-regression requires at least 3 studies. Found: ' + studies.length);
+      return;
+    }
+
+    const covLabel = document.getElementById('covLabel').value || 'Covariate';
+    const effectLabel = document.getElementById('effectLabel').value || 'Effect';
+    const bMin = parseFloat(document.getElementById('bMin').value) || 0;
+    const bMax = parseFloat(document.getElementById('bMax').value) || 0.05;
+    const bSteps = parseInt(document.getElementById('bSteps').value) || 50;
+
+    let xRef = parseFloat(document.getElementById('xRef').value);
+    if (isNaN(xRef)) {
+      // Default: weighted mean of xbar
+      const wSimple = studies.map(s => 1 / (s.se * s.se));
+      const sumW = wSimple.reduce((a, b) => a + b, 0);
+      xRef = wSimple.reduce((a, wi, i) => a + wi * studies[i].xbar, 0) / sumW;
+    }
+
+    // 1. Meta-regression
+    const reg = metaRegression(studies);
+
+    // 2. Standard RE pooling (naive)
+    const dlNaive = dlTau2(studies);
+    const poolNaive = rePool(studies, dlNaive.tau2);
+    const I2Naive = calcI2(dlNaive.Q, dlNaive.df);
+
+    // 3. Within-study pooling
+    const withinResult = poolWithinStudy(studies);
+
+    // 4. Ecological bias decomposition
+    const decomp = ecoBiasDecomposition(reg.beta, reg.seBeta, withinResult);
+
+    // 5. Sensitivity analysis
+    const sensResults = sensitivityAnalysis(studies, xRef, bMin, bMax, bSteps);
+
+    // 6. Best bias-corrected estimate
+    // Use decomp if available, otherwise use midpoint of sensitivity range
+    let bestB = (bMin + bMax) / 2;
+    if (decomp) {
+      bestB = decomp.bias;
+    }
+    const correctedStudies = studies.map(s => ({
+      ...s,
+      y: s.y - bestB * (s.xbar - xRef)
+    }));
+    const dlCorr = dlTau2(correctedStudies);
+    const poolCorr = rePool(correctedStudies, dlCorr.tau2);
+    const I2Corr = calcI2(dlCorr.Q, dlCorr.df);
+
+    // Store analysis
+    lastAnalysis = {
+      studies, reg, poolNaive, poolCorr, withinResult, decomp,
+      sensResults, correctedStudies, covLabel, effectLabel, xRef, bestB,
+      I2Naive, I2Corr, dlNaive, dlCorr
+    };
+
+    // Show results
+    document.getElementById('resultsSection').classList.remove('hidden');
+    document.getElementById('covLabelDisplay').textContent = covLabel;
+
+    // Summary metrics
+    renderMetrics(lastAnalysis);
+
+    // Decomposition panel
+    renderDecomposition(lastAnalysis);
+
+    // Meta-regression plot
+    drawMetaRegPlot(document.getElementById('metaregPlot'), studies, reg, covLabel, effectLabel);
+
+    // Forest plots
+    drawForestPlot(document.getElementById('forestUncorrected'), studies, poolNaive, 'Uncorrected (Naive)', dlNaive.tau2);
+    drawForestPlot(document.getElementById('forestCorrected'), correctedStudies, poolCorr, 'Corrected (Bias-Adjusted)', dlCorr.tau2);
+
+    // Tornado
+    drawTornadoPlot(document.getElementById('tornadoPlot'), sensResults, effectLabel);
+
+    // Summary table
+    renderSummaryTable(lastAnalysis);
+
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+function renderMetrics(a) {
+  const grid = document.getElementById('metricGrid');
+  const items = [
+    { val: a.studies.length, lbl: 'Studies (k)' },
+    { val: a.poolNaive.est.toFixed(3), lbl: 'Naive Pooled ' + a.effectLabel },
+    { val: a.poolCorr.est.toFixed(3), lbl: 'Corrected Pooled ' + a.effectLabel },
+    { val: a.reg.beta.toFixed(4), lbl: 'Between-Study Slope (\u03B2_B)' },
+    { val: (a.reg.R2 * 100).toFixed(1) + '%', lbl: 'R\u00B2 (Meta-Regression)' },
+    { val: a.I2Naive.toFixed(1) + '%', lbl: 'I\u00B2 (Uncorrected)' },
+    { val: a.I2Corr.toFixed(1) + '%', lbl: 'I\u00B2 (Corrected)' },
+    { val: a.decomp ? a.decomp.bias.toFixed(4) : 'N/A', lbl: 'Ecological Bias Est.' }
+  ];
+  grid.innerHTML = items.map(i => `<div class="metric"><div class="val">${i.val}</div><div class="lbl">${i.lbl}</div></div>`).join('');
+}
+
+function renderDecomposition(a) {
+  const div = document.getElementById('decompContent');
+  let html = '';
+
+  // Between-study slope
+  html += `<div class="decomp-row">
+    <span class="decomp-label" style="color:var(--accent)">Between-study slope (\u03B2_B):</span>
+    <span class="decomp-val" style="color:var(--accent)">${a.reg.beta.toFixed(4)}</span>
+    <span class="decomp-ci">95% CI [${a.reg.betaCI[0].toFixed(4)}, ${a.reg.betaCI[1].toFixed(4)}]</span>
+  </div>`;
+
+  // Within-study
+  if (a.withinResult) {
+    html += `<div class="decomp-row">
+      <span class="decomp-label" style="color:var(--accent3)">Within-study pooled effect:</span>
+      <span class="decomp-val" style="color:var(--accent3)">${a.withinResult.pooled.toFixed(4)}</span>
+      <span class="decomp-ci">95% CI [${a.withinResult.pooledCI[0].toFixed(4)}, ${a.withinResult.pooledCI[1].toFixed(4)}] (${a.withinResult.nStudies} studies)</span>
+    </div>`;
+
+    if (a.withinResult.betaW !== null) {
+      html += `<div class="decomp-row">
+        <span class="decomp-label" style="color:var(--accent3)">Within-study slope (\u03B2_W):</span>
+        <span class="decomp-val" style="color:var(--accent3)">${a.withinResult.betaW.toFixed(4)}</span>
+        <span class="decomp-ci">95% CI [${a.withinResult.betaW_CI[0].toFixed(4)}, ${a.withinResult.betaW_CI[1].toFixed(4)}]</span>
+      </div>`;
+    } else {
+      html += `<div class="decomp-row">
+        <span class="decomp-label" style="color:var(--muted)">Within-study slope (\u03B2_W):</span>
+        <span class="decomp-val" style="color:var(--muted)">Unavailable</span>
+        <span class="decomp-ci">Need \u22653 studies with within-study data for slope estimation</span>
+      </div>`;
+    }
+  } else {
+    html += `<div class="decomp-row">
+      <span class="decomp-label" style="color:var(--muted)">Within-study data:</span>
+      <span class="decomp-val" style="color:var(--muted)">Unavailable</span>
+      <span class="decomp-ci">No studies provided WithinStudyEffect/WithinStudySE columns. Sensitivity analysis only.</span>
+    </div>`;
+  }
+
+  // Ecological bias
+  if (a.decomp) {
+    const color = Math.abs(a.decomp.bias) > 0.001 ? 'var(--warn)' : 'var(--accent3)';
+    html += `<div class="decomp-row" style="border:1px solid ${color};margin-top:0.5rem">
+      <span class="decomp-label" style="color:${color}">Ecological Bias (\u03B2_B - \u03B2_W):</span>
+      <span class="decomp-val" style="color:${color}">${a.decomp.bias.toFixed(4)}</span>
+      <span class="decomp-ci">95% CI [${a.decomp.biasCI[0].toFixed(4)}, ${a.decomp.biasCI[1].toFixed(4)}]</span>
+    </div>`;
+  } else {
+    html += `<div class="decomp-row" style="border:1px solid var(--muted);margin-top:0.5rem">
+      <span class="decomp-label" style="color:var(--muted)">Ecological Bias:</span>
+      <span class="decomp-val" style="color:var(--muted)">Cannot compute</span>
+      <span class="decomp-ci">Requires within-study slope (\u03B2_W). Use sensitivity tornado to explore bias range.</span>
+    </div>`;
+  }
+
+  html += `<p style="color:var(--muted);font-size:0.82rem;margin-top:0.7rem">
+    <strong>Interpretation:</strong> The between-study slope (\u03B2_B) captures how the treatment effect varies with the study-level covariate mean.
+    The within-study slope (\u03B2_W) captures the individual-level relationship.
+    Ecological bias = \u03B2_B - \u03B2_W; non-zero bias means aggregate-level associations misrepresent individual-level relationships.
+    Correction: y_corrected = y - bias \u00D7 (x_study - x_ref), where x_ref = ${a.xRef.toFixed(1)}.
+  </p>`;
+
+  div.innerHTML = html;
+}
+
+function renderSummaryTable(a) {
+  const table = document.getElementById('summaryTable');
+  let html = '<thead><tr>';
+  html += '<th>Metric</th><th>Value</th><th>95% CI</th><th>Notes</th>';
+  html += '</tr></thead><tbody>';
+
+  const rows = [
+    ['Naive Pooled Effect', a.poolNaive.est.toFixed(4), `[${a.poolNaive.ci[0].toFixed(4)}, ${a.poolNaive.ci[1].toFixed(4)}]`, 'RE (DL)'],
+    ['Corrected Pooled Effect', a.poolCorr.est.toFixed(4), `[${a.poolCorr.ci[0].toFixed(4)}, ${a.poolCorr.ci[1].toFixed(4)}]`, `Bias factor = ${a.bestB.toFixed(4)}`],
+    ['Between-Study Slope (\u03B2_B)', a.reg.beta.toFixed(4), `[${a.reg.betaCI[0].toFixed(4)}, ${a.reg.betaCI[1].toFixed(4)}]`, 'Knapp-Hartung, t_{k-2}'],
+    ['Intercept (\u03B1)', a.reg.alpha.toFixed(4), `[${a.reg.alphaCI[0].toFixed(4)}, ${a.reg.alphaCI[1].toFixed(4)}]`, 'At mean covariate'],
+    ['tau\u00B2 (Naive)', a.dlNaive.tau2.toFixed(6), '', 'DerSimonian-Laird'],
+    ['tau\u00B2 (Corrected)', a.dlCorr.tau2.toFixed(6), '', 'DerSimonian-Laird'],
+    ['I\u00B2 (Naive)', a.I2Naive.toFixed(1) + '%', '', `Q = ${a.dlNaive.Q.toFixed(2)}, df = ${a.dlNaive.df}`],
+    ['I\u00B2 (Corrected)', a.I2Corr.toFixed(1) + '%', '', `Q = ${a.dlCorr.Q.toFixed(2)}, df = ${a.dlCorr.df}`],
+    ['R\u00B2 (Meta-Regression)', (a.reg.R2 * 100).toFixed(1) + '%', '', 'Proportion variance explained'],
+    ['Reference Covariate', a.xRef.toFixed(1), '', a.covLabel],
+  ];
+
+  if (a.decomp) {
+    rows.push(['Ecological Bias', a.decomp.bias.toFixed(4), `[${a.decomp.biasCI[0].toFixed(4)}, ${a.decomp.biasCI[1].toFixed(4)}]`, '\u03B2_B - \u03B2_W']);
+  }
+
+  if (a.withinResult) {
+    rows.push(['Within-Study Pooled', a.withinResult.pooled.toFixed(4), `[${a.withinResult.pooledCI[0].toFixed(4)}, ${a.withinResult.pooledCI[1].toFixed(4)}]`, `${a.withinResult.nStudies} studies`]);
+    if (a.withinResult.betaW !== null) {
+      rows.push(['Within-Study Slope (\u03B2_W)', a.withinResult.betaW.toFixed(4), `[${a.withinResult.betaW_CI[0].toFixed(4)}, ${a.withinResult.betaW_CI[1].toFixed(4)}]`, 'From within-study regression']);
+    }
+  }
+
+  for (const r of rows) {
+    html += `<tr><td>${r[0]}</td><td><strong>${r[1]}</strong></td><td>${r[2]}</td><td>${r[3]}</td></tr>`;
+  }
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+
+/* ====== EXPORT ====== */
+
+function exportSVG(containerId, filename) {
+  const container = document.getElementById(containerId);
+  const svg = container.querySelector('svg');
+  if (!svg) { alert('No plot to export'); return; }
+  const serializer = new XMLSerializer();
+  const svgString = serializer.serializeToString(svg);
+  const blob = new Blob([svgString], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename + '.svg';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCSV() {
+  if (!lastAnalysis) { alert('Run analysis first'); return; }
+  const a = lastAnalysis;
+  let csv = 'Metric,Value,CI_Lower,CI_Upper,Notes\n';
+  csv += `Naive Pooled,${a.poolNaive.est.toFixed(6)},${a.poolNaive.ci[0].toFixed(6)},${a.poolNaive.ci[1].toFixed(6)},RE DL\n`;
+  csv += `Corrected Pooled,${a.poolCorr.est.toFixed(6)},${a.poolCorr.ci[0].toFixed(6)},${a.poolCorr.ci[1].toFixed(6)},Bias=${a.bestB.toFixed(6)}\n`;
+  csv += `Beta_B,${a.reg.beta.toFixed(6)},${a.reg.betaCI[0].toFixed(6)},${a.reg.betaCI[1].toFixed(6)},Between-study slope\n`;
+  csv += `Alpha,${a.reg.alpha.toFixed(6)},${a.reg.alphaCI[0].toFixed(6)},${a.reg.alphaCI[1].toFixed(6)},Intercept\n`;
+  csv += `Tau2_Naive,${a.dlNaive.tau2.toFixed(6)},,,DL\n`;
+  csv += `Tau2_Corrected,${a.dlCorr.tau2.toFixed(6)},,,DL\n`;
+  csv += `I2_Naive,${a.I2Naive.toFixed(2)},,,Percent\n`;
+  csv += `I2_Corrected,${a.I2Corr.toFixed(2)},,,Percent\n`;
+  csv += `R2,${(a.reg.R2 * 100).toFixed(2)},,,Percent\n`;
+  csv += `x_ref,${a.xRef.toFixed(2)},,,${a.covLabel}\n`;
+
+  if (a.decomp) {
+    csv += `Ecological_Bias,${a.decomp.bias.toFixed(6)},${a.decomp.biasCI[0].toFixed(6)},${a.decomp.biasCI[1].toFixed(6)},Beta_B - Beta_W\n`;
+  }
+  if (a.withinResult) {
+    csv += `Within_Study_Pooled,${a.withinResult.pooled.toFixed(6)},${a.withinResult.pooledCI[0].toFixed(6)},${a.withinResult.pooledCI[1].toFixed(6)},k=${a.withinResult.nStudies}\n`;
+    if (a.withinResult.betaW !== null) {
+      csv += `Beta_W,${a.withinResult.betaW.toFixed(6)},${a.withinResult.betaW_CI[0].toFixed(6)},${a.withinResult.betaW_CI[1].toFixed(6)},Within-study slope\n`;
+    }
+  }
+
+  csv += '\nSensitivity Analysis\nBias_Factor,Pooled_Est,Pooled_CI_Lower,Pooled_CI_Upper,I2,Tau2\n';
+  for (const r of a.sensResults) {
+    csv += `${r.B.toFixed(6)},${r.pooledEst.toFixed(6)},${r.pooledCI[0].toFixed(6)},${r.pooledCI[1].toFixed(6)},${r.I2.toFixed(2)},${r.tau2.toFixed(6)}\n`;
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'ecobiasma_results.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/* ====== INIT ====== */
+document.addEventListener('DOMContentLoaded', function() {
+  // Nothing on load — wait for user action
+});
+</script>
+</body>
+</html>
