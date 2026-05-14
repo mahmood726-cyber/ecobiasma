@@ -5,11 +5,7 @@ Pytest + Selenium, 17 tests covering stats engine, UI rendering, exports.
 
 import pytest
 import os
-import sys
 import time
-import json
-import subprocess
-import socket
 import threading
 import http.server
 from selenium import webdriver
@@ -19,15 +15,14 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # ============ Fixtures ============
 
-def get_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+class QuietHTTPServer(http.server.ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
 
 @pytest.fixture(scope="session")
 def server():
     """Start a local HTTP server for the app."""
-    port = get_free_port()
     app_dir = os.path.dirname(os.path.abspath(__file__))
     handler = http.server.SimpleHTTPRequestHandler
 
@@ -37,19 +32,23 @@ def server():
         def log_message(self, format, *args):
             pass  # Suppress logs
 
-    httpd = http.server.HTTPServer(("127.0.0.1", port), QuietHandler)
+    try:
+        httpd = QuietHTTPServer(("127.0.0.1", 8000), QuietHandler)
+    except OSError:
+        httpd = QuietHTTPServer(("127.0.0.1", 0), QuietHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
-    yield f"http://127.0.0.1:{port}/index.html"
-    httpd.shutdown()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_port}/index.html"
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5)
+        httpd.server_close()
 
 @pytest.fixture(scope="session")
 def driver():
     """Create a headless Chrome/Edge driver."""
-    # Kill orphan chromedriver
-    if sys.platform == "win32":
-        os.system("taskkill /f /im chromedriver.exe >nul 2>&1")
-        os.system("taskkill /f /im msedgedriver.exe >nul 2>&1")
+    d = None
 
     # Try Chrome first
     try:
@@ -61,30 +60,25 @@ def driver():
         opts.add_argument("--window-size=1400,900")
         opts.set_capability("goog:loggingPrefs", {"browser": "ALL"})
         d = webdriver.Chrome(options=opts)
-        d.set_page_load_timeout(60)
-        d.implicitly_wait(5)
-        yield d
-        d.quit()
-        return
     except Exception:
-        pass
+        # Fallback to Edge
+        try:
+            opts = webdriver.EdgeOptions()
+            opts.add_argument("--headless=new")
+            opts.add_argument("--no-sandbox")
+            opts.add_argument("--disable-dev-shm-usage")
+            opts.add_argument("--disable-gpu")
+            opts.add_argument("--window-size=1400,900")
+            d = webdriver.Edge(options=opts)
+        except Exception:
+            pytest.skip("No browser driver available (Chrome or Edge)")
 
-    # Fallback to Edge
+    d.set_page_load_timeout(60)
+    d.implicitly_wait(5)
     try:
-        opts = webdriver.EdgeOptions()
-        opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-gpu")
-        opts.add_argument("--window-size=1400,900")
-        d = webdriver.Edge(options=opts)
-        d.set_page_load_timeout(60)
-        d.implicitly_wait(5)
         yield d
+    finally:
         d.quit()
-        return
-    except Exception:
-        pytest.skip("No browser driver available (Chrome or Edge)")
 
 
 @pytest.fixture(autouse=True)
